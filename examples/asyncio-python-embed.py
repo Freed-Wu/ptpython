@@ -11,6 +11,7 @@ The ``patch_stdout`` option makes sure that when another coroutine is writing
 to stdout, it won't break the input line, but instead writes nicely above the
 prompt.
 """
+
 import asyncio
 
 from ptpython.repl import embed
@@ -19,7 +20,7 @@ loop = asyncio.get_event_loop()
 counter = [0]
 
 
-async def print_counter():
+async def print_counter() -> None:
     """
     Coroutine that prints counters and saves it in a global variable.
     """
@@ -29,7 +30,7 @@ async def print_counter():
         await asyncio.sleep(3)
 
 
-async def interactive_shell():
+async def interactive_shell() -> None:
     """
     Coroutine that starts a Python REPL from which we can access the global
     counter variable.
@@ -44,13 +45,10 @@ async def interactive_shell():
         loop.stop()
 
 
-def main():
-    asyncio.ensure_future(print_counter())
-    asyncio.ensure_future(interactive_shell())
-
-    loop.run_forever()
-    loop.close()
+async def main() -> None:
+    asyncio.create_task(print_counter())
+    await interactive_shell()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

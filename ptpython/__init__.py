@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .repl import embed
 from .entry_points.run_ptpython import create_parser
 

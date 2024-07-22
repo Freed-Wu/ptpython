@@ -2,11 +2,12 @@
 Application for reading Python input.
 This can be used for creation of Python REPLs.
 """
-import __future__
 
-from asyncio import get_event_loop
+from __future__ import annotations
+
+from asyncio import get_running_loop
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, List, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Mapping, TypeVar, Union
 
 from prompt_toolkit.application import Application, get_app
 from prompt_toolkit.auto_suggest import (
@@ -23,9 +24,15 @@ from prompt_toolkit.completion import (
     ThreadedCompleter,
     merge_completers,
 )
+from prompt_toolkit.cursor_shapes import (
+    AnyCursorShapeConfig,
+    CursorShape,
+    DynamicCursorShapeConfig,
+    ModalCursorShapeConfig,
+)
 from prompt_toolkit.document import Document
 from prompt_toolkit.enums import DEFAULT_BUFFER, EditingMode
-from prompt_toolkit.filters import Condition
+from prompt_toolkit.filters import Condition, FilterOrBool
 from prompt_toolkit.formatted_text import AnyFormattedText
 from prompt_toolkit.history import (
     FileHistory,
@@ -43,7 +50,13 @@ from prompt_toolkit.key_binding.bindings.auto_suggest import load_auto_suggest_b
 from prompt_toolkit.key_binding.bindings.open_in_editor import (
     load_open_in_editor_bindings,
 )
+from prompt_toolkit.key_binding.key_bindings import Binding, KeyHandlerCallable
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.key_binding.vi_state import InputMode
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.containers import AnyContainer
+from prompt_toolkit.layout.dimension import AnyDimension
+from prompt_toolkit.layout.processors import Processor
 from prompt_toolkit.lexers import DynamicLexer, Lexer, SimpleLexer
 from prompt_toolkit.output import ColorDepth, Output
 from prompt_toolkit.styles import (
@@ -72,6 +85,11 @@ from .style import generate_style, get_all_code_styles, get_all_ui_styles
 from .utils import unindent_code
 from .validator import PythonValidator
 
+# Isort introduces a SyntaxError, if we'd write `import __future__`.
+# https://github.com/PyCQA/isort/issues/2100
+__future__ = __import__("__future__")
+
+
 __all__ = ["PythonInput"]
 
 
@@ -79,22 +97,22 @@ if TYPE_CHECKING:
     from typing_extensions import Protocol
 
     class _SupportsLessThan(Protocol):
-        # Taken from typeshed. _T is used by "sorted", which needs anything
+        # Taken from typeshed. _T_lt is used by "sorted", which needs anything
         # sortable.
-        def __lt__(self, __other: Any) -> bool:
-            ...
+        def __lt__(self, __other: Any) -> bool: ...
 
 
-_T = TypeVar("_T", bound="_SupportsLessThan")
+_T_lt = TypeVar("_T_lt", bound="_SupportsLessThan")
+_T_kh = TypeVar("_T_kh", bound=Union[KeyHandlerCallable, Binding])
 
 
-class OptionCategory:
-    def __init__(self, title: str, options: List["Option"]) -> None:
+class OptionCategory(Generic[_T_lt]):
+    def __init__(self, title: str, options: list[Option[_T_lt]]) -> None:
         self.title = title
         self.options = options
 
 
-class Option(Generic[_T]):
+class Option(Generic[_T_lt]):
     """
     Ptpython configuration option that can be shown and modified from the
     sidebar.
@@ -110,10 +128,10 @@ class Option(Generic[_T]):
         self,
         title: str,
         description: str,
-        get_current_value: Callable[[], _T],
+        get_current_value: Callable[[], _T_lt],
         # We accept `object` as return type for the select functions, because
         # often they return an unused boolean. Maybe this can be improved.
-        get_values: Callable[[], Dict[_T, Callable[[], object]]],
+        get_values: Callable[[], Mapping[_T_lt, Callable[[], object]]],
     ) -> None:
         self.title = title
         self.description = description
@@ -121,7 +139,7 @@ class Option(Generic[_T]):
         self.get_values = get_values
 
     @property
-    def values(self) -> Dict[_T, Callable[[], object]]:
+    def values(self) -> Mapping[_T_lt, Callable[[], object]]:
         return self.get_values()
 
     def activate_next(self, _previous: bool = False) -> None:
@@ -182,26 +200,25 @@ class PythonInput:
 
     def __init__(
         self,
-        get_globals: Optional[_GetNamespace] = None,
-        get_locals: Optional[_GetNamespace] = None,
-        history_filename: Optional[str] = None,
+        get_globals: _GetNamespace | None = None,
+        get_locals: _GetNamespace | None = None,
+        history_filename: str | None = None,
         vi_mode: bool = False,
-        color_depth: Optional[ColorDepth] = None,
+        color_depth: ColorDepth | None = None,
         # Input/output.
-        input: Optional[Input] = None,
-        output: Optional[Output] = None,
+        input: Input | None = None,
+        output: Output | None = None,
         # For internal use.
-        extra_key_bindings: Optional[KeyBindings] = None,
-        create_app=True,
-        _completer: Optional[Completer] = None,
-        _validator: Optional[Validator] = None,
-        _lexer: Optional[Lexer] = None,
-        _extra_buffer_processors=None,
-        _extra_layout_body=None,
-        _extra_toolbars=None,
-        _input_buffer_height=None,
+        extra_key_bindings: KeyBindings | None = None,
+        create_app: bool = True,
+        _completer: Completer | None = None,
+        _validator: Validator | None = None,
+        _lexer: Lexer | None = None,
+        _extra_buffer_processors: list[Processor] | None = None,
+        _extra_layout_body: AnyContainer | None = None,
+        _extra_toolbars: list[AnyContainer] | None = None,
+        _input_buffer_height: AnyDimension | None = None,
     ) -> None:
-
         self.get_globals: _GetNamespace = get_globals or (lambda: {})
         self.get_locals: _GetNamespace = get_locals or self.get_globals
 
@@ -239,7 +256,7 @@ class PythonInput:
             self.history = InMemoryHistory()
 
         self._input_buffer_height = _input_buffer_height
-        self._extra_layout_body = _extra_layout_body or []
+        self._extra_layout_body = _extra_layout_body
         self._extra_toolbars = _extra_toolbars or []
         self._extra_buffer_processors = _extra_buffer_processors or []
 
@@ -298,7 +315,7 @@ class PythonInput:
         self.show_exit_confirmation: bool = False
 
         # The title to be displayed in the terminal. (None or string.)
-        self.terminal_title: Optional[str] = None
+        self.terminal_title: str | None = None
 
         self.exit_message: str = "Do you really want to exit?"
         self.insert_blank_line_after_output: bool = True  # (For the REPL.)
@@ -309,25 +326,29 @@ class PythonInput:
         self.search_buffer: Buffer = Buffer()
         self.docstring_buffer: Buffer = Buffer(read_only=True)
 
+        # Cursor shapes.
+        self.cursor_shape_config = "Block"
+        self.all_cursor_shape_configs: dict[str, AnyCursorShapeConfig] = {
+            "Block": CursorShape.BLOCK,
+            "Underline": CursorShape.UNDERLINE,
+            "Beam": CursorShape.BEAM,
+            "Modal (vi)": ModalCursorShapeConfig(),
+            "Blink block": CursorShape.BLINKING_BLOCK,
+            "Blink under": CursorShape.BLINKING_UNDERLINE,
+            "Blink beam": CursorShape.BLINKING_BEAM,
+        }
+
         # Tokens to be shown at the prompt.
         self.prompt_style: str = "classic"  # The currently active style.
 
         # Styles selectable from the menu.
-        self.all_prompt_styles: Dict[str, PromptStyle] = {
+        self.all_prompt_styles: dict[str, PromptStyle] = {
             "ipython": IPythonPrompt(self),
             "classic": ClassicPrompt(),
         }
 
-        self.get_input_prompt = lambda: self.all_prompt_styles[
-            self.prompt_style
-        ].in_prompt()
-
-        self.get_output_prompt = lambda: self.all_prompt_styles[
-            self.prompt_style
-        ].out_prompt()
-
         #: Load styles.
-        self.code_styles: Dict[str, BaseStyle] = get_all_code_styles()
+        self.code_styles: dict[str, BaseStyle] = get_all_code_styles()
         self.ui_styles = get_all_ui_styles()
         self._current_code_style_name: str = "default"
         self._current_ui_style_name: str = "default"
@@ -345,11 +366,11 @@ class PythonInput:
         self.options = self._create_options()
         self.selected_option_index: int = 0
 
-        #: Incremeting integer counting the current statement.
+        #: Incrementing integer counting the current statement.
         self.current_statement_index: int = 1
 
         # Code signatures. (This is set asynchronously after a timeout.)
-        self.signatures: List[Signature] = []
+        self.signatures: list[Signature] = []
 
         # Boolean indicating whether we have a signatures thread running.
         # (Never run more than one at the same time.)
@@ -388,13 +409,19 @@ class PythonInput:
         # Create an app if requested. If not, the global get_app() is returned
         # for self.app via property getter.
         if create_app:
-            self._app: Optional[Application] = self._create_application(input, output)
+            self._app: Application[str] | None = self._create_application(input, output)
             # Setting vi_mode will not work unless the prompt_toolkit
             # application has been created.
             if vi_mode:
                 self.app.editing_mode = EditingMode.VI
         else:
             self._app = None
+
+    def get_input_prompt(self) -> AnyFormattedText:
+        return self.all_prompt_styles[self.prompt_style].in_prompt()
+
+    def get_output_prompt(self) -> AnyFormattedText:
+        return self.all_prompt_styles[self.prompt_style].out_prompt()
 
     def _accept_handler(self, buff: Buffer) -> bool:
         app = get_app()
@@ -408,7 +435,7 @@ class PythonInput:
         return sum(len(category.options) for category in self.options)
 
     @property
-    def selected_option(self) -> Option:
+    def selected_option(self) -> Option[Any]:
         "Return the currently selected option."
         i = 0
         for category in self.options:
@@ -443,12 +470,21 @@ class PythonInput:
 
         return flags
 
-    @property
-    def add_key_binding(self) -> Callable[[_T], _T]:
+    def add_key_binding(
+        self,
+        *keys: Keys | str,
+        filter: FilterOrBool = True,
+        eager: FilterOrBool = False,
+        is_global: FilterOrBool = False,
+        save_before: Callable[[KeyPressEvent], bool] = (lambda e: True),
+        record_in_macro: FilterOrBool = True,
+    ) -> Callable[[_T_kh], _T_kh]:
         """
         Shortcut for adding new key bindings.
         (Mostly useful for a config.py file, that receives
         a PythonInput/Repl instance as input.)
+
+        All arguments are identical to prompt_toolkit's `KeyBindings.add`.
 
         ::
 
@@ -456,11 +492,14 @@ class PythonInput:
             def handler(event):
                 ...
         """
-
-        def add_binding_decorator(*k, **kw):
-            return self.extra_key_bindings.add(*k, **kw)
-
-        return add_binding_decorator
+        return self.extra_key_bindings.add(
+            *keys,
+            filter=filter,
+            eager=eager,
+            is_global=is_global,
+            save_before=save_before,
+            record_in_macro=record_in_macro,
+        )
 
     def install_code_colorscheme(self, name: str, style: BaseStyle) -> None:
         """
@@ -514,7 +553,7 @@ class PythonInput:
             self.ui_styles[self._current_ui_style_name],
         )
 
-    def _create_options(self) -> List[OptionCategory]:
+    def _create_options(self) -> list[OptionCategory[Any]]:
         """
         Create a list of `Option` instances for the options sidebar.
         """
@@ -530,15 +569,17 @@ class PythonInput:
             return True
 
         def simple_option(
-            title: str, description: str, field_name: str, values: Optional[List] = None
-        ) -> Option:
+            title: str,
+            description: str,
+            field_name: str,
+            values: tuple[str, str] = ("off", "on"),
+        ) -> Option[str]:
             "Create Simple on/of option."
-            values = values or ["off", "on"]
 
-            def get_current_value():
+            def get_current_value() -> str:
                 return values[bool(getattr(self, field_name))]
 
-            def get_values():
+            def get_values() -> dict[str, Callable[[], bool]]:
                 return {
                     values[1]: lambda: enable(field_name),
                     values[0]: lambda: disable(field_name),
@@ -564,6 +605,16 @@ class PythonInput:
                         get_values=lambda: {
                             "Emacs": lambda: disable("vi_mode"),
                             "Vi": lambda: enable("vi_mode"),
+                        },
+                    ),
+                    Option(
+                        title="Cursor shape",
+                        description="Change the cursor style, possibly according "
+                        "to the Vi input mode.",
+                        get_current_value=lambda: self.cursor_shape_config,
+                        get_values=lambda: {
+                            s: partial(enable, "cursor_shape_config", s)
+                            for s in self.all_cursor_shape_configs
                         },
                     ),
                     simple_option(
@@ -715,10 +766,10 @@ class PythonInput:
                         title="Prompt",
                         description="Visualisation of the prompt. ('>>>' or 'In [1]:')",
                         get_current_value=lambda: self.prompt_style,
-                        get_values=lambda: dict(
-                            (s, partial(enable, "prompt_style", s))
+                        get_values=lambda: {
+                            s: partial(enable, "prompt_style", s)
                             for s in self.all_prompt_styles
-                        ),
+                        },
                     ),
                     simple_option(
                         title="Blank line after input",
@@ -789,7 +840,7 @@ class PythonInput:
                 [
                     simple_option(
                         title="Syntax highlighting",
-                        description="Use colors for syntax highligthing",
+                        description="Use colors for syntax highlighting",
                         field_name="enable_syntax_highlighting",
                     ),
                     simple_option(
@@ -810,10 +861,10 @@ class PythonInput:
                         title="User interface",
                         description="Color scheme to use for the user interface.",
                         get_current_value=lambda: self._current_ui_style_name,
-                        get_values=lambda: dict(
-                            (name, partial(self.use_ui_colorscheme, name))
+                        get_values=lambda: {
+                            name: partial(self.use_ui_colorscheme, name)
                             for name in self.ui_styles
-                        ),
+                        },
                     ),
                     Option(
                         title="Color depth",
@@ -827,18 +878,18 @@ class PythonInput:
                     Option(
                         title="Min brightness",
                         description="Minimum brightness for the color scheme (default=0.0).",
-                        get_current_value=lambda: "%.2f" % self.min_brightness,
+                        get_current_value=lambda: f"{self.min_brightness:.2f}",
                         get_values=lambda: {
-                            "%.2f" % value: partial(self._set_min_brightness, value)
+                            f"{value:.2f}": partial(self._set_min_brightness, value)
                             for value in brightness_values
                         },
                     ),
                     Option(
                         title="Max brightness",
                         description="Maximum brightness for the color scheme (default=1.0).",
-                        get_current_value=lambda: "%.2f" % self.max_brightness,
+                        get_current_value=lambda: f"{self.max_brightness:.2f}",
                         get_values=lambda: {
-                            "%.2f" % value: partial(self._set_max_brightness, value)
+                            f"{value:.2f}": partial(self._set_max_brightness, value)
                             for value in brightness_values
                         },
                     ),
@@ -847,8 +898,8 @@ class PythonInput:
         ]
 
     def _create_application(
-        self, input: Optional[Input], output: Optional[Output]
-    ) -> Application:
+        self, input: Input | None, output: Output | None
+    ) -> Application[str]:
         """
         Create an `Application` instance.
         """
@@ -878,6 +929,9 @@ class PythonInput:
             style_transformation=self.style_transformation,
             include_default_pygments_style=False,
             reverse_vi_search_direction=True,
+            cursor=DynamicCursorShapeConfig(
+                lambda: self.all_cursor_shape_configs[self.cursor_shape_config]
+            ),
             input=input,
             output=output,
         )
@@ -926,7 +980,7 @@ class PythonInput:
             self.editing_mode = EditingMode.EMACS
 
     @property
-    def app(self) -> Application:
+    def app(self) -> Application[str]:
         if self._app is None:
             return get_app()
         return self._app
@@ -937,7 +991,7 @@ class PythonInput:
         in another thread, get the signature of the current code.
         """
 
-        def get_signatures_in_executor(document: Document) -> List[Signature]:
+        def get_signatures_in_executor(document: Document) -> list[Signature]:
             # First, get signatures from Jedi. If we didn't found any and if
             # "dictionary completion" (eval-based completion) is enabled, then
             # get signatures using eval.
@@ -954,7 +1008,7 @@ class PythonInput:
         app = self.app
 
         async def on_timeout_task() -> None:
-            loop = get_event_loop()
+            loop = get_running_loop()
 
             # Never run multiple get-signature threads.
             if self._get_signatures_thread_running:
@@ -1027,6 +1081,7 @@ class PythonInput:
 
         This can raise EOFError, when Control-D is pressed.
         """
+
         # Capture the current input_mode in order to restore it after reset,
         # for ViState.reset() sets it to InputMode.INSERT unconditionally and
         # doesn't accept any arguments.
@@ -1061,4 +1116,5 @@ class PythonInput:
                     return result
             except KeyboardInterrupt:
                 # Abort - try again.
+                self.signatures = []
                 self.default_buffer.document = Document()

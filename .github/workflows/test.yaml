@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.7, 3.8, 3.9, "3.10", "3.11"]
 
     steps:
       - uses: actions/checkout@v2
@@ -22,14 +22,13 @@ jobs:
         run: |
           sudo apt remove python3-pip
           python -m pip install --upgrade pip
-          python -m pip install . black isort mypy pytest readme_renderer
-          python -m pip install . types-dataclasses  # Needed for Python 3.6
+          python -m pip install . ruff mypy pytest readme_renderer
           pip list
       - name: Type Checker
         run: |
           mypy ptpython
-          isort -c --profile black ptpython examples setup.py
-          black --check ptpython examples setup.py
+          ruff check .
+          ruff format --check .
       - name: Run Tests
         run: |
           ./tests/run_tests.py

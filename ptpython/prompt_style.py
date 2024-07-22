@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABCMeta, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -40,13 +42,13 @@ class IPythonPrompt(PromptStyle):
     A prompt resembling the IPython prompt.
     """
 
-    def __init__(self, python_input: "PythonInput") -> None:
+    def __init__(self, python_input: PythonInput) -> None:
         self.python_input = python_input
 
     def in_prompt(self) -> AnyFormattedText:
         return [
             ("class:in", "In ["),
-            ("class:in.number", "%s" % self.python_input.current_statement_index),
+            ("class:in.number", f"{self.python_input.current_statement_index}"),
             ("class:in", "]: "),
         ]
 
@@ -56,7 +58,7 @@ class IPythonPrompt(PromptStyle):
     def out_prompt(self) -> AnyFormattedText:
         return [
             ("class:out", "Out["),
-            ("class:out.number", "%s" % self.python_input.current_statement_index),
+            ("class:out.number", f"{self.python_input.current_statement_index}"),
             ("class:out", "]:"),
             ("", " "),
         ]

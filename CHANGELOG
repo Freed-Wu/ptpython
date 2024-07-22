@@ -1,6 +1,101 @@
 CHANGELOG
 =========
 
+3.0.29: 2024-07-22
+------------------
+
+Fixes:
+- Further improve performance of dictionary completions.
+
+
+3.0.28: 2024-07-22
+------------------
+
+New features:
+- Custom 'exit' function to return from REPL that
+  * doesn't terminate `sys.stdin` when `exit` is called (important for
+    `embed()`).
+  * doesn't require to be called with parentheses.
+
+Fixes:
+- Clean up signatures on control-c.
+
+
+3.0.27: 2024-05-27
+------------------
+
+- Limit number of completions to 5k (for performance).
+- Several typing fixes.
+
+
+3.0.26: 2024-02-06
+------------------
+
+Fixes:
+- Handle `GeneratorExit` exception when leaving the paginator.
+
+
+3.0.25: 2023-12-14
+------------------
+
+Fixes:
+- Fix handling of 'config file does not exist' when embedding ptpython.
+
+
+3.0.24: 2023-12-13
+------------------
+
+Fixes:
+- Don't show "Impossible to read config file" warnings when no config file was
+  passed to `run_config()`.
+- IPython integration fixes:
+  * Fix top-level await in IPython.
+  * Fix IPython `DeprecationWarning`.
+- Output printing fixes:
+  * Paginate exceptions if pagination is enabled.
+  * Handle big outputs without running out of memory.
+- Asyncio REPL improvements:
+  * From now on, passing `--asyncio` is required to activate the asyncio-REPL.
+    This will ensure that an event loop is created at the start in which we can
+    run top-level await statements.
+  * Use `get_running_loop()` instead of `get_event_loop()`.
+  * Better handling of `SystemExit` and control-c in the async REPL.
+
+
+3.0.23: 2023-02-22
+------------------
+
+Fixes:
+- Don't print exception messages twice for unhandled exceptions.
+- Added cursor shape support.
+
+Breaking changes:
+- Drop Python 3.6 support.
+
+
+3.0.22: 2022-12-06
+------------------
+
+New features:
+- Improve rendering performance when there are many completions.
+
+
+3.0.21: 2022-11-25
+------------------
+
+New features:
+- Make ptipython respect more config changes.
+  (See: https://github.com/prompt-toolkit/ptpython/pull/110 )
+- Improved performance of `DictionaryCompleter` for slow mappings.
+
+Fixes:
+- Call `super()` in `PythonInputFilter`. This will prevent potentially breakage
+  with an upcoming prompt_toolkit change.
+  (See: https://github.com/prompt-toolkit/python-prompt-toolkit/pull/1690 )
+- Improved type annotations.
+- Added `py.typed` to the `package_data`.
+
+
 3.0.20: 2021-09-14
 ------------------
 
@@ -157,7 +252,7 @@ New features:
 - Optional pager for displaying outputs that don't fit on the screen.
 - Added --light-bg and --dark-bg flags to automatically optimize the brightness
   of the colors according to the terminal background.
-- Addd `PTPYTHON_CONFIG_HOME` for explicitely setting the config directory.
+- Add `PTPYTHON_CONFIG_HOME` for explicitly setting the config directory.
 - Show completion suffixes (like '(' for functions).
 
 Fixes:

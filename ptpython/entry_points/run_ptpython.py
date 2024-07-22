@@ -9,6 +9,7 @@ optional arguments:
   -h, --help            show this help message and exit
   --vi                  Enable Vi key bindings
   -i, --interactive     Start interactive shell after executing this file.
+  --asyncio             Run an asyncio event loop to support top-level "await".
   --light-bg            Run on a light background (use dark colors for text).
   --dark-bg             Run on a dark background (use light colors for text).
   --config-file CONFIG_FILE
@@ -21,21 +22,25 @@ environment variables:
   PTPYTHON_CONFIG_HOME: a configuration directory to use
   PYTHONSTARTUP: file executed on interactive startup (no default)
 """
+
+from __future__ import annotations
+
 import argparse
+import asyncio
 import os
 import pathlib
 import sys
 from textwrap import dedent
-from typing import Tuple
+from typing import IO
 
 import appdirs
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.shortcuts import print_formatted_text
 
-from ptpython.repl import embed, enable_deprecation_warnings, run_config
+from ptpython.repl import PythonRepl, embed, enable_deprecation_warnings, run_config
 
 try:
-    from importlib import metadata
+    from importlib import metadata  # type: ignore
 except ImportError:
     import importlib_metadata as metadata  # type: ignore
 
@@ -44,7 +49,7 @@ __all__ = ["create_parser", "get_config_and_history_file", "run"]
 
 
 class _Parser(argparse.ArgumentParser):
-    def print_help(self):
+    def print_help(self, file: IO[str] | None = None) -> None:
         super().print_help()
         print(
             dedent(
@@ -67,15 +72,20 @@ def create_parser() -> _Parser:
         help="Start interactive shell after executing this file.",
     )
     parser.add_argument(
+        "--asyncio",
+        action="store_true",
+        help='Run an asyncio event loop to support top-level "await".',
+    )
+    parser.add_argument(
         "--light-bg",
         action="store_true",
         help="Run on a light background (use dark colors for text).",
-    ),
+    )
     parser.add_argument(
         "--dark-bg",
         action="store_true",
         help="Run on a dark background (use light colors for text).",
-    ),
+    )
     parser.add_argument(
         "--config-file", type=str, metavar="file", help="Location of configuration file."
     )
@@ -86,13 +96,13 @@ def create_parser() -> _Parser:
         "-V",
         "--version",
         action="version",
-        version=metadata.version("ptpython"),  # type: ignore
+        version=metadata.version("ptpython"),
     )
     parser.add_argument("args", nargs="*", help="Script and arguments")
     return parser
 
 
-def get_config_and_history_file(namespace: argparse.Namespace) -> Tuple[str, str]:
+def get_config_and_history_file(namespace: argparse.Namespace) -> tuple[str, str]:
     """
     Check which config/history files to use, ensure that the directories for
     these files exist, and return the config and history path.
@@ -192,7 +202,7 @@ def run() -> None:
         enable_deprecation_warnings()
 
         # Apply config file
-        def configure(repl) -> None:
+        def configure(repl: PythonRepl) -> None:
             if os.path.exists(config_file):
                 run_config(repl, config_file)
 
@@ -206,7 +216,7 @@ def run() -> None:
 
         import __main__
 
-        embed(
+        embed_result = embed(  # type: ignore
             vi_mode=a.vi,
             history_filename=history_file,
             configure=configure,
@@ -214,7 +224,13 @@ def run() -> None:
             globals=__main__.__dict__,
             startup_paths=startup_paths,
             title="Python REPL (ptpython)",
+            return_asyncio_coroutine=a.asyncio,
         )
+
+        if a.asyncio:
+            print("Starting ptpython asyncio REPL")
+            print('Use "await" directly instead of "asyncio.run()".')
+            asyncio.run(embed_result)
 
 
 if __name__ == "__main__":

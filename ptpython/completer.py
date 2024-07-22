@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import ast
 import collections.abc as collections_abc
 import inspect
 import keyword
 import re
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
+from itertools import islice
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from prompt_toolkit.completion import (
     CompleteEvent,
@@ -21,6 +24,7 @@ from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_te
 from ptpython.utils import get_jedi_script_from_document
 
 if TYPE_CHECKING:
+    import jedi.api.classes
     from prompt_toolkit.contrib.regular_languages.compiler import _CompiledGrammar
 
 __all__ = ["PythonCompleter", "CompletePrivateAttributes", "HidePrivateCompleter"]
@@ -43,8 +47,8 @@ class PythonCompleter(Completer):
 
     def __init__(
         self,
-        get_globals: Callable[[], dict],
-        get_locals: Callable[[], dict],
+        get_globals: Callable[[], dict[str, Any]],
+        get_locals: Callable[[], dict[str, Any]],
         enable_dictionary_completion: Callable[[], bool],
     ) -> None:
         super().__init__()
@@ -57,8 +61,8 @@ class PythonCompleter(Completer):
         self._jedi_completer = JediCompleter(get_globals, get_locals)
         self._dictionary_completer = DictionaryCompleter(get_globals, get_locals)
 
-        self._path_completer_cache: Optional[GrammarCompleter] = None
-        self._path_completer_grammar_cache: Optional["_CompiledGrammar"] = None
+        self._path_completer_cache: GrammarCompleter | None = None
+        self._path_completer_grammar_cache: _CompiledGrammar | None = None
 
     @property
     def _path_completer(self) -> GrammarCompleter:
@@ -73,7 +77,7 @@ class PythonCompleter(Completer):
         return self._path_completer_cache
 
     @property
-    def _path_completer_grammar(self) -> "_CompiledGrammar":
+    def _path_completer_grammar(self) -> _CompiledGrammar:
         """
         Return the grammar for matching paths inside strings inside Python
         code.
@@ -84,7 +88,7 @@ class PythonCompleter(Completer):
             self._path_completer_grammar_cache = self._create_path_completer_grammar()
         return self._path_completer_grammar_cache
 
-    def _create_path_completer_grammar(self) -> "_CompiledGrammar":
+    def _create_path_completer_grammar(self) -> _CompiledGrammar:
         def unwrapper(text: str) -> str:
             return re.sub(r"\\(.)", r"\1", text)
 
@@ -188,7 +192,6 @@ class PythonCompleter(Completer):
         ):
             # If we are inside a string, Don't do Jedi completion.
             if not self._path_completer_grammar.match(document.text_before_cursor):
-
                 # Do Jedi Python completions.
                 yield from self._jedi_completer.get_completions(
                     document, complete_event
@@ -200,7 +203,11 @@ class JediCompleter(Completer):
     Autocompleter that uses the Jedi library.
     """
 
-    def __init__(self, get_globals, get_locals) -> None:
+    def __init__(
+        self,
+        get_globals: Callable[[], dict[str, Any]],
+        get_locals: Callable[[], dict[str, Any]],
+    ) -> None:
         super().__init__()
 
         self.get_globals = get_globals
@@ -237,7 +244,7 @@ class JediCompleter(Completer):
                 # Jedi issue: "KeyError: u'a_lambda'."
                 # https://github.com/jonathanslenders/ptpython/issues/89
                 pass
-            except IOError:
+            except OSError:
                 # Jedi issue: "IOError: No such file or directory."
                 # https://github.com/jonathanslenders/ptpython/issues/71
                 pass
@@ -253,7 +260,7 @@ class JediCompleter(Completer):
                 # See: https://github.com/jonathanslenders/ptpython/issues/223
                 pass
             except Exception:
-                # Supress all other Jedi exceptions.
+                # Suppress all other Jedi exceptions.
                 pass
             else:
                 # Move function parameters to the top.
@@ -296,7 +303,11 @@ class DictionaryCompleter(Completer):
              function calls, so it only triggers attribute access.
     """
 
-    def __init__(self, get_globals, get_locals):
+    def __init__(
+        self,
+        get_globals: Callable[[], dict[str, Any]],
+        get_locals: Callable[[], dict[str, Any]],
+    ) -> None:
         super().__init__()
 
         self.get_globals = get_globals
@@ -357,7 +368,7 @@ class DictionaryCompleter(Completer):
             rf"""
                 {expression}
 
-                # Dict loopup to complete (square bracket open + start of
+                # Dict lookup to complete (square bracket open + start of
                 # string).
                 \[
                 \s* ([^\[\]]*)$
@@ -370,14 +381,14 @@ class DictionaryCompleter(Completer):
             rf"""
                 {expression}
 
-                # Attribute loopup to complete (dot + varname).
+                # Attribute lookup to complete (dot + varname).
                 \.
                 \s* ([a-zA-Z0-9_]*)$
             """,
             re.VERBOSE,
         )
 
-    def _lookup(self, expression: str, temp_locals: Dict[str, Any]) -> object:
+    def _lookup(self, expression: str, temp_locals: dict[str, Any]) -> object:
         """
         Do lookup of `object_var` in the context.
         `temp_locals` is a dictionary, used for the locals.
@@ -390,7 +401,6 @@ class DictionaryCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
-
         # First, find all for-loops, and assign the first item of the
         # collections they're iterating to the iterator variable, so that we
         # can provide code completion on the iterators.
@@ -422,7 +432,7 @@ class DictionaryCompleter(Completer):
         except BaseException:
             raise ReprFailedError
 
-    def eval_expression(self, document: Document, locals: Dict[str, Any]) -> object:
+    def eval_expression(self, document: Document, locals: dict[str, Any]) -> object:
         """
         Evaluate
         """
@@ -437,7 +447,7 @@ class DictionaryCompleter(Completer):
         self,
         document: Document,
         complete_event: CompleteEvent,
-        temp_locals: Dict[str, Any],
+        temp_locals: dict[str, Any],
     ) -> Iterable[Completion]:
         """
         Complete the [ or . operator after an object.
@@ -445,7 +455,6 @@ class DictionaryCompleter(Completer):
         result = self.eval_expression(document, temp_locals)
 
         if result is not None:
-
             if isinstance(
                 result,
                 (list, tuple, dict, collections_abc.Mapping, collections_abc.Sequence),
@@ -461,20 +470,43 @@ class DictionaryCompleter(Completer):
         self,
         document: Document,
         complete_event: CompleteEvent,
-        temp_locals: Dict[str, Any],
+        temp_locals: dict[str, Any],
     ) -> Iterable[Completion]:
         """
         Complete dictionary keys.
         """
 
-        def abbr_meta(text: str) -> str:
+        def meta_repr(obj: object, key: object) -> Callable[[], str]:
             "Abbreviate meta text, make sure it fits on one line."
-            # Take first line, if multiple lines.
-            if len(text) > 20:
-                text = text[:20] + "..."
-            if "\n" in text:
-                text = text.split("\n", 1)[0] + "..."
-            return text
+            cached_result: str | None = None
+
+            # We return a function, so that it gets computed when it's needed.
+            # When there are many completions, that improves the performance
+            # quite a bit (for the multi-column completion menu, we only need
+            # to display one meta text).
+            # Note that we also do the lookup itself in here (`obj[key]`),
+            # because this part can also be slow for some mapping
+            # implementations.
+            def get_value_repr() -> str:
+                nonlocal cached_result
+                if cached_result is not None:
+                    return cached_result
+
+                try:
+                    value = obj[key]  # type: ignore
+
+                    text = self._do_repr(value)
+                except BaseException:
+                    return "-"
+
+                # Take first line, if multiple lines.
+                if "\n" in text:
+                    text = text.split("\n", 1)[0] + "..."
+
+                cached_result = text
+                return text
+
+            return get_value_repr
 
         match = self.item_lookup_pattern.search(document.text_before_cursor)
         if match is not None:
@@ -486,29 +518,25 @@ class DictionaryCompleter(Completer):
             # If this object is a dictionary, complete the keys.
             if isinstance(result, (dict, collections_abc.Mapping)):
                 # Try to evaluate the key.
-                key_obj = key
+                key_obj_str = str(key)
                 for k in [key, key + '"', key + "'"]:
                     try:
-                        key_obj = ast.literal_eval(k)
+                        key_obj_str = str(ast.literal_eval(k))
                     except (SyntaxError, ValueError):
                         continue
                     else:
                         break
 
                 for k in result:
-                    if str(k).startswith(str(key_obj)):
+                    if str(k).startswith(key_obj_str):
                         try:
                             k_repr = self._do_repr(k)
                             yield Completion(
                                 k_repr + "]",
                                 -len(key),
                                 display=f"[{k_repr}]",
-                                display_meta=abbr_meta(self._do_repr(result[k])),
+                                display_meta=meta_repr(result, k),
                             )
-                        except KeyError:
-                            # `result[k]` lookup failed. Trying to complete
-                            # broken object.
-                            pass
                         except ReprFailedError:
                             pass
 
@@ -523,7 +551,7 @@ class DictionaryCompleter(Completer):
                                     k_repr + "]",
                                     -len(key),
                                     display=f"[{k_repr}]",
-                                    display_meta=abbr_meta(self._do_repr(result[k])),
+                                    display_meta=meta_repr(result, k),
                                 )
                             except KeyError:
                                 # `result[k]` lookup failed. Trying to complete
@@ -536,7 +564,7 @@ class DictionaryCompleter(Completer):
         self,
         document: Document,
         complete_event: CompleteEvent,
-        temp_locals: Dict[str, Any],
+        temp_locals: dict[str, Any],
     ) -> Iterable[Completion]:
         """
         Complete attribute names.
@@ -555,9 +583,9 @@ class DictionaryCompleter(Completer):
                     obj = getattr(result, name, None)
                     if inspect.isfunction(obj) or inspect.ismethod(obj):
                         return "()"
-                    if isinstance(obj, dict):
+                    if isinstance(obj, collections_abc.Mapping):
                         return "{}"
-                    if isinstance(obj, (list, tuple)):
+                    if isinstance(obj, collections_abc.Sequence):
                         return "[]"
                 except:
                     pass
@@ -568,13 +596,13 @@ class DictionaryCompleter(Completer):
                     suffix = get_suffix(name)
                     yield Completion(name, -len(attr_name), display=name + suffix)
 
-    def _sort_attribute_names(self, names: List[str]) -> List[str]:
+    def _sort_attribute_names(self, names: list[str]) -> list[str]:
         """
         Sort attribute names alphabetically, but move the double underscore and
         underscore names to the end.
         """
 
-        def sort_key(name: str):
+        def sort_key(name: str) -> tuple[int, str]:
             if name.startswith("__"):
                 return (2, name)  # Double underscore comes latest.
             if name.startswith("_"):
@@ -586,7 +614,7 @@ class DictionaryCompleter(Completer):
 
 class HidePrivateCompleter(Completer):
     """
-    Wrapper around completer that hides private fields, deponding on whether or
+    Wrapper around completer that hides private fields, depending on whether or
     not public fields are shown.
 
     (The reason this is implemented as a `Completer` wrapper is because this
@@ -604,8 +632,10 @@ class HidePrivateCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
-
-        completions = list(self.completer.get_completions(document, complete_event))
+        completions = list(
+            # Limit at 5k completions for performance.
+            islice(self.completer.get_completions(document, complete_event), 0, 5000)
+        )
         complete_private_attributes = self.complete_private_attributes()
         hide_private = False
 
@@ -639,7 +669,9 @@ except ImportError:  # Python 2.
     _builtin_names = []
 
 
-def _get_style_for_jedi_completion(jedi_completion) -> str:
+def _get_style_for_jedi_completion(
+    jedi_completion: jedi.api.classes.Completion,
+) -> str:
     """
     Return completion style to use for this name.
     """

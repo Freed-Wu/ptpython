@@ -12,7 +12,7 @@ ptpython
 .. image :: https://github.com/jonathanslenders/ptpython/raw/master/docs/images/example1.png
 
 Ptpython is an advanced Python REPL. It should work on all
-Python versions from 2.6 up to 3.9 and work cross platform (Linux,
+Python versions from 2.6 up to 3.11 and work cross platform (Linux,
 BSD, OS X and Windows).
 
 Note: this version of ptpython requires at least Python 3.6. Install ptpython
@@ -71,6 +71,7 @@ The help menu shows basic command-line options.
       -h, --help            show this help message and exit
       --vi                  Enable Vi key bindings
       -i, --interactive     Start interactive shell after executing this file.
+      --asyncio             Run an asyncio event loop to support top-level "await".
       --light-bg            Run on a light background (use dark colors for text).
       --dark-bg             Run on a dark background (use light colors for text).
       --config-file CONFIG_FILE
@@ -171,6 +172,20 @@ error.
 .. image :: https://github.com/jonathanslenders/ptpython/raw/master/docs/images/validation.png
 
 
+Asyncio REPL and top level await
+********************************
+
+In order to get top-level ``await`` support, start ptpython as follows:
+
+.. code::
+
+   ptpython --asyncio
+
+This will spawn an asyncio event loop and embed the async REPL in the event
+loop. After this, top-level await will work and statements like ``await
+asyncio.sleep(10)`` will execute.
+
+
 Additional features
 *******************
 
@@ -213,7 +228,7 @@ This is also available for embedding:
 
 .. code:: python
 
-    from ptpython.ipython.repl import embed
+    from ptpython.ipython import embed
     embed(globals(), locals())
 
 
@@ -240,6 +255,22 @@ Windows. Some things might not work, but it is usable:
 
 .. image :: https://github.com/jonathanslenders/ptpython/raw/master/docs/images/windows.png
 
+Windows terminal integration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you are using the `Windows Terminal <https://aka.ms/terminal>`_ and want to 
+integrate ``ptpython`` as a profile, go to *Settings -> Open JSON file* and add the
+following profile under *profiles.list*:
+
+.. code-block:: JSON
+
+    {
+        "commandline": "%SystemRoot%\\System32\\cmd.exe /k ptpython",
+        "guid": "{f91d49a3-741b-409c-8a15-c4360649121f}",
+        "hidden": false,
+        "icon": "https://upload.wikimedia.org/wikipedia/commons/e/e6/Python_Windows_interpreter_icon_2006%E2%80%932016_Tiny.png",
+        "name": "ptpython@cmd"
+    }
 
 FAQ
 ***
@@ -273,12 +304,12 @@ Special thanks to
 - `wcwidth <https://github.com/jquast/wcwidth>`_: Determine columns needed for a wide characters.
 - `prompt_toolkit <http://github.com/jonathanslenders/python-prompt-toolkit>`_ for the interface.
 
-.. |Build Status| image:: https://api.travis-ci.org/prompt-toolkit/ptpython.svg?branch=master
-    :target: https://travis-ci.org/prompt-toolkit/ptpython#
+.. |Build Status| image:: https://github.com/prompt-toolkit/ptpython/actions/workflows/test.yaml/badge.svg
+    :target: https://github.com/prompt-toolkit/ptpython/actions/workflows/test.yaml
 
 .. |License| image:: https://img.shields.io/github/license/prompt-toolkit/ptpython.svg
     :target: https://github.com/prompt-toolkit/ptpython/blob/master/LICENSE
 
-.. |PyPI| image:: https://pypip.in/version/ptpython/badge.svg
-    :target: https://pypi.python.org/pypi/ptpython/
+.. |PyPI| image:: https://img.shields.io/pypi/v/ptpython.svg
+    :target: https://pypi.org/project/ptpython/
     :alt: Latest Version

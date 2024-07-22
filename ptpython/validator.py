@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from typing import Callable
+
+from prompt_toolkit.document import Document
 from prompt_toolkit.validation import ValidationError, Validator
 
 from .utils import unindent_code
@@ -13,10 +18,10 @@ class PythonValidator(Validator):
         active compiler flags.
     """
 
-    def __init__(self, get_compiler_flags=None):
+    def __init__(self, get_compiler_flags: Callable[[], int] | None = None) -> None:
         self.get_compiler_flags = get_compiler_flags
 
-    def validate(self, document):
+    def validate(self, document: Document) -> None:
         """
         Check input for Python syntax errors.
         """
@@ -45,7 +50,7 @@ class PythonValidator(Validator):
             # fixed in Python 3.)
             # TODO: This is not correct if indentation was removed.
             index = document.translate_row_col_to_index(
-                e.lineno - 1, (e.offset or 1) - 1
+                (e.lineno or 1) - 1, (e.offset or 1) - 1
             )
             raise ValidationError(index, f"Syntax Error: {e}")
         except TypeError as e:
@@ -54,4 +59,4 @@ class PythonValidator(Validator):
         except ValueError as e:
             # In Python 2, compiling "\x9" (an invalid escape sequence) raises
             # ValueError instead of SyntaxError.
-            raise ValidationError(0, "Syntax Error: %s" % e)
+            raise ValidationError(0, f"Syntax Error: {e}")
